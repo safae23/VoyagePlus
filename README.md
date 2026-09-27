@@ -1,33 +1,18 @@
 # VoyagePlus
 
-**Planification de voyages et aide a la decision par une architecture multi-agents.**
+**Un seul espace pour preparer son voyage : vols, hebergements, activites et meteo.**
 
 VoyagePlus regroupe les informations utiles a la preparation d'un sejour dans une
 seule interface : vols, hebergements, activites touristiques et meteo. A partir
 d'une ville de depart, d'une destination, de dates et d'un budget, un orchestrateur
 coordonne quatre agents specialises et rassemble leurs resultats.
 
-Ce depot contient le prototype academique du projet. Les vols sont simules et
-les prix des hebergements sont estimes ; le service ne permet pas de reserver
-ni de payer un voyage.
+Developpe dans le cadre d'un Projet de Fin d'Etudes, VoyagePlus associe une
+interface interactive, des services independants et plusieurs sources de donnees.
+Il illustre un parcours complet, de la saisie du voyage a la presentation de
+resultats structures pour accompagner les choix de l'utilisateur.
 
-## Cadre academique
-
-| Element | Information |
-| --- | --- |
-| Formation | Master 2 - Technologie de l'Information, Produits et Services Multimedia |
-| Projet | Memoire de Projet de Fin d'Etudes - VoyagePlus |
-| Annee universitaire | 2025-2026 |
-| Realisation | Wissam AMEKRANE et Safae CHOUAI |
-| Encadrement pedagogique | M. Marc Bertin |
-| Encadrement de la conception et de la gestion de projet | M. Federico Tajariol |
-
-La presentation du projet s'appuie sur le memoire VoyagePlus, notamment les
-chapitres consacres a la problematique, a la conception, au developpement et a
-l'evaluation. Les instructions techniques ci-dessous decrivent le code disponible
-dans ce depot.
-
-## Problematique et objectifs
+## Pourquoi VoyagePlus ?
 
 Organiser un voyage implique souvent de consulter plusieurs plateformes pour
 comparer les transports, rechercher un logement, choisir des visites et verifier
@@ -43,13 +28,24 @@ quatre objectifs :
 - Selectionner et classer les resultats pour faciliter leur comparaison.
 - Proposer une vue d'ensemble du sejour pour accompagner la decision.
 
-L'approche repose sur la separation des responsabilites, le filtrage et le calcul
-de scores. La version actuelle n'utilise pas de modele d'apprentissage automatique
-pour personnaliser les recommandations.
+## Points forts
 
-## Fonctionnalites du prototype
+- **Une recherche centralisee** : une seule saisie pour retrouver les quatre
+  categories d'informations utiles au sejour.
+- **Une architecture modulaire** : chaque agent prend en charge un domaine
+  precis, ce qui facilite l'evolution des fonctionnalites et des sources de donnees.
+- **Des traitements concurrents** : l'orchestrateur lance les recherches des
+  agents en parallele et rassemble leurs reponses.
+- **Des recommandations classees** : les hebergements et les activites sont
+  selectionnes a partir de criteres de prix, de distance ou d'interet.
+- **Une restitution lisible** : Streamlit presente les resultats par categorie
+  pour faciliter la consultation et la comparaison.
+- **Une base testable** : les services disposent d'une documentation API
+  interactive et de tests automatises executes avec GitHub Actions.
 
-| Fonctionnalite | Comportement dans cette version |
+## Fonctionnalites
+
+| Fonctionnalite | Ce que propose VoyagePlus |
 | --- | --- |
 | Saisie du voyage | Ville de depart, destination, dates et budget dans Streamlit |
 | Vols aller-retour | Generation locale de vols de demonstration pour Paris/Rome, Paris/Rabat et Paris/Madrid, dans les deux sens |
@@ -96,12 +92,9 @@ resultats renvoyes par les autres agents.
 | unittest et Streamlit AppTest | Tests des services et de l'interface |
 | GitHub Actions | Execution automatique des tests lors des pushes et pull requests |
 
-Le memoire decrit ADK et des experimentations avec Hugging Face. Ces integrations
-ne sont pas actives dans le code actuel et ne sont pas necessaires a son
-installation. Les modules `a2a_client.py` et `a2a_server.py` assurent des echanges
-HTTP/JSON entre agents ; ils n'implementent pas le protocole A2A complet.
-RapidAPI est mentionne dans le rapport, mais l'agent vols de ce depot utilise
-uniquement des donnees simulees.
+La communication entre agents repose sur des requetes HTTP et des reponses JSON.
+Les composants communs centralisent les appels et la creation des services,
+tandis que chaque agent conserve sa propre logique de traitement.
 
 ## Installation
 
@@ -182,9 +175,8 @@ Exemple de corps JSON pour `POST http://127.0.0.1:8000/run` :
 }
 ```
 
-La reponse regroupe les cles `flights`, `stay`, `activities` et `weather`.
-Le budget saisi n'est pas encore reparti entre le transport, le logement et
-les activites : voir les limites ci-dessous.
+La reponse regroupe les cles `flights`, `stay`, `activities` et `weather`,
+directement exploitees par l'interface pour afficher les differentes propositions.
 
 ## Structure du depot
 
@@ -226,58 +218,54 @@ n'exigent pas de cle API. Le workflow GitHub Actions execute cette meme suite.
 Ces tests ne verifient pas la disponibilite reelle d'OpenWeather, de Nominatim
 ou d'Overpass, ni les performances en production.
 
-### Evaluation presentee dans le memoire
+### Evaluation du parcours utilisateur
 
 Le memoire rapporte une evaluation qualitative du prototype a partir de
 scenarios d'usage et d'une grille d'utilisabilite. Elle porte sur la clarte de
 l'interface, la navigation, la comprehension des fonctionnalites, la pertinence
 des recommandations et la coherence du parcours.
 
-Cette evaluation a ete menee sans utilisateurs finaux. Elle constitue une
-premiere analyse du prototype, sans mesure quantitative de satisfaction ou
-de performance des utilisateurs.
+Cette analyse experte, realisee sans utilisateurs finaux, apporte un premier
+regard sur le parcours et les pistes d'amelioration de l'interface.
 
-## Limites et perspectives
+## Perimetre du prototype
 
-### Limites actuelles
+VoyagePlus est un demonstrateur d'aide a la decision, sans reservation ni paiement.
+Il combine des donnees externes et des donnees de demonstration :
 
-- Les vols et leurs prix sont simules ; aucune disponibilite aerienne n'est verifiee.
-- Les prix des hebergements sont des estimations locales, sans verification des
-  tarifs ni des disponibilites. Le budget total est transmis comme plafond par
-  nuit a l'agent hebergement.
-- La meteo correspond au moment de la recherche, pas aux dates du sejour.
-- Les activites utilisent un rayon fixe de 7 km et la categorie `top`, meme si
-  d'autres valeurs sont envoyees a l'orchestrateur.
-- Les donnees ouvertes, les quotas et les temps de reponse des API peuvent
-  limiter les resultats.
-- La validation des entrees reste partielle. Si la date de retour precede ou
-  egale le depart, l'agent vols la decale de trois jours.
-- Le prototype est destine a une demonstration locale. Il ne comprend ni
-  reservation, ni paiement, ni comptes utilisateurs, ni historique persistant.
+- Les vols sont simules et les tarifs des hebergements sont estimes.
+- Les lieux proviennent d'OpenStreetMap ; la meteo correspond aux conditions
+  actuelles fournies par OpenWeather, et non aux dates du sejour.
+- Le budget est utilise comme plafond par nuit pour l'hebergement ; sa repartition
+  entre les differentes composantes du voyage reste une perspective d'evolution.
+- Les activites sont recherchees dans un rayon fixe de 7 km, pour la categorie `top`.
 
-### Perspectives issues du rapport
+La demonstration s'execute localement et depend de la disponibilite des API
+externes. Utiliser des dates coherentes : l'agent vols decale le retour de trois
+jours si sa date precede ou egale celle du depart. La version actuelle fonctionne
+sans comptes utilisateurs ni historique persistant.
+
+## Perspectives d'evolution
 
 - Mener des tests avec des utilisateurs reels.
 - Ameliorer la lisibilite et la hierarchisation des recommandations.
 - Enrichir la personnalisation et les sources de donnees.
 - Optimiser les echanges entre agents et les temps de reponse.
+- Renforcer la validation des dates et la repartition du budget.
 - Etudier la gestion des profils utilisateurs et le passage a plus grande echelle.
 
-La validation des dates et la repartition effective du budget constituent aussi
-des ameliorations techniques a apporter a cette version.
+## Cadre academique et auteurs
 
-## Equipe et contributions
+VoyagePlus a ete realise en binome dans le cadre d'un Projet de Fin d'Etudes,
+selon une demarche progressive de conception, de developpement et d'evaluation.
 
-Le projet a ete realise en binome, avec une conception globale, une architecture,
-une integration et une documentation menees en collaboration.
-
-| Membre | Contributions principales decrites dans le memoire |
+| Element | Information |
 | --- | --- |
-| Wissam AMEKRANE | Agents activites et hebergement, integration des fonctionnalites, tests et ajustements techniques |
-| Safae CHOUAI | Agents meteo et vols, participation a l'interface Streamlit, integration des fonctionnalites, tests et ajustements techniques |
-
-Le travail a suivi une demarche progressive : conception, developpement des
-agents, integration et tests, puis documentation et preparation de la soutenance.
+| Formation | Master 2 - Technologie de l'Information, Produits et Services Multimedia |
+| Annee universitaire | 2025-2026 |
+| Auteurs | Wissam AMEKRANE et Safae CHOUAI |
+| Encadrement pedagogique | M. Marc Bertin |
+| Encadrement de la conception et de la gestion de projet | M. Federico Tajariol |
 
 ## Licence
 
