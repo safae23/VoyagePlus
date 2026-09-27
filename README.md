@@ -244,10 +244,3 @@ sans comptes utilisateurs ni historique persistant.
 - Renforcer la validation des dates et la répartition du budget.
 - Étudier la gestion des profils utilisateurs et le passage à plus grande échelle.
 
-## Auteurs
-
-Wissam AMEKRANE et Safae CHOUAI.
-
-## Licence
-
-Aucune licence de redistribution n'est actuellement déclarée dans ce dépôt.
