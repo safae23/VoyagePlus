@@ -4,3 +4,9 @@ python-dotenv==1.2.1
 requests==2.32.5
 streamlit==1.51.0
 uvicorn==0.38.0
+
+google-adk[a2a]==1.18.0
+litellm==1.79.3
+a2a-sdk==0.3.26
+pydantic==2.12.3
+reportlab==5.0.1

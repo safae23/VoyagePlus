@@ -1,9 +1,9 @@
 import httpx
 import math
+from common.geoapify import city_places
+from common.osm import geocode_city as lookup_city, overpass_fetch as fetch_places
 
 USER_AGENT = "VoyagePlus-PFE/1.1"
-
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
 CATEGORIES = {
     "top": [
@@ -25,16 +25,8 @@ WEIGHTS = {
 
 
 async def geocode_city(client, city):
-    r = await client.get(
-        "https://nominatim.openstreetmap.org/search",
-        params={"q": city, "format": "json", "limit": 1},
-        headers={"User-Agent": USER_AGENT},
-        timeout=15
-    )
-    data = r.json()
-    if not data:
-        return None
-    return float(data[0]["lat"]), float(data[0]["lon"])
+    result = await lookup_city(client, city)
+    return result[:2] if result else None
 
 
 def overpass_query(lat, lon, radius_m, filters):
@@ -42,7 +34,7 @@ def overpass_query(lat, lon, radius_m, filters):
     for k, v in filters:
         q.append(f'node["{k}"="{v}"](around:{radius_m},{lat},{lon});')
     return f"""
-    [out:json][timeout:20];
+    [out:json][timeout:12];
     (
       {"".join(q)}
     );
@@ -50,14 +42,9 @@ def overpass_query(lat, lon, radius_m, filters):
     """
 
 async def overpass_fetch(client, query):
-    r = await client.post(
-        OVERPASS_URL,
-        data=query,
-        headers={"User-Agent": USER_AGENT},
-        timeout=25
-    )
-    js = r.json()
-    return js.get("elements", [])
+    # Try the same fallback servers as lodging instead of relying on one endpoint.
+    result = await fetch_places(client, query)
+    return result
 
 
 def haversine(lat1, lon1, lat2, lon2):
@@ -93,13 +80,20 @@ async def execute(request):
         return {"activities": []}
 
     async with httpx.AsyncClient() as client:
-        geo = await geocode_city(client, city)
-        if not geo:
-            return {"activities": []}
+        provider_result = await city_places(client, city, "tourism.sights,entertainment.museum,leisure.park", 7000)
+        if provider_result is not None:
+            geo, elements = provider_result
+            lat, lon = geo[:2]
+        else:
+            geo = await geocode_city(client, city)
+            if not geo:
+                return {"activities": [], "error": "Destination introuvable ou service de localisation indisponible."}
+            lat, lon = geo
+            query = overpass_query(lat, lon, 7000, CATEGORIES["top"])
+            elements = await overpass_fetch(client, query)
 
-        lat, lon = geo
-        query = overpass_query(lat, lon, 7000, CATEGORIES["top"])
-        elements = await overpass_fetch(client, query)
+        if elements is None:
+            return {"activities": [], "error": "Recherche d'activités indisponible : les serveurs OpenStreetMap n'ont pas répondu. Réessayez plus tard."}
 
         activities = []
 
@@ -117,7 +111,14 @@ async def execute(request):
                 "category": detect_label(tags),
                 "distance_km": round(dist, 2),
                 "score": score,
-                "source": "OpenStreetMap"
+                "source": e.get("source", "OpenStreetMap"),
+                "address": e.get("address"),
+                "opening_hours": tags.get("opening_hours"),
+                "website": tags.get("website"),
+                "fee": tags.get("fee"),
+                "price_eur": None,
+                "availability_verified": False,
+                "map_url": f"https://www.google.com/maps/search/?api=1&query={e['lat']},{e['lon']}"
             })
 
         activities.sort(key=lambda x: (-x["score"], x["distance_km"]))

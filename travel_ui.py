@@ -1,7 +1,11 @@
 import streamlit as st
 import requests
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
+import re
+from html import escape
+from urllib.parse import urlparse
+from common.trip_pdf import build_trip_pdf
 
 st.set_page_config(
     page_title="VoyagePlus - Planificateur Intelligent",
@@ -112,7 +116,7 @@ with col_left:
         with c1:
             start_date = st.date_input("Date de départ", value=date.today())
         with c2:
-            end_date = st.date_input("Date de retour", value=date.today())
+            end_date = st.date_input("Date de retour", value=date.today() + timedelta(days=3))
 
         budget = st.number_input("Budget total (€)", min_value=100, value=1500, step=50)
         search = st.button("Planifier mon voyage ✈️")
@@ -126,6 +130,10 @@ st.markdown('</div>', unsafe_allow_html=True)
 # =========================
 # ACTION : RECHERCHE
 # =========================
+if search and (not origin.strip() or not destination.strip() or end_date <= start_date):
+    st.error("Indiquez les deux villes et une date de retour après le départ.")
+    st.stop()
+
 if search:
     payload = {
         "origin": origin,
@@ -137,173 +145,214 @@ if search:
 
     with st.spinner("🔍 Analyse de votre demande et recherche des meilleures offres..."):
         try:
-            response = requests.post("http://localhost:8000/run", json=payload, timeout=120)
+            response = requests.post("http://localhost:8000/run", json=payload, timeout=150)
             response.raise_for_status()
             data = response.json()
-
-            # =========================
-            # DEBUG / ERREUR FLIGHT
-            # =========================
-            if data.get("error"):
-                st.error(f"✈️ Flight error: {data['error']}")
-                with st.expander("Voir la réponse complète (debug)"):
-                    st.json(data)
-
-            # =========================
-            # VOL
-            # =========================
-            st.markdown(
-                f'<div class="title" style="font-size:35px;">✈️ Vols pour {destination}</div>',
-                unsafe_allow_html=True
-            )
-
-            flights = data.get("flights")
-            if not isinstance(flights, dict):
-                st.warning("Réponse 'flights' absente ou invalide.")
-                with st.expander("Debug JSON"):
-                    st.json(data)
-            else:
-                col_a, col_r = st.columns(2)
-
-                with col_a:
-                    st.markdown("### 🛫 Aller")
-                    vols_aller = flights.get("aller", [])
-                    if not vols_aller:
-                        st.info("Aucun vol trouvé.")
-                    for f in vols_aller:
-                        st.markdown(f"""
-                            <div class="result-card" style="border-left: 8px solid #FF9800;">
-                                <div style="font-weight: 800; color: #FF9800; font-size: 1.1rem;">{f.get('airline', 'Compagnie')}</div>
-                                <div style="color: #444; margin: 5px 0;">🕒 {f.get('departure_time')} → {f.get('arrival_time')}</div>
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-                                    <span style="font-size: 0.9rem; color: #777;">⏱️ {f.get('duration')}</span>
-                                    <span style="font-weight: 700; font-size: 1.2rem; color: #2B2B2B;">{f.get('price')} EUR</span>
-                                </div>
-                            </div>
-                        """, unsafe_allow_html=True)
-
-                with col_r:
-                    st.markdown("### 🛬 Retour")
-                    vols_retour = flights.get("retour", [])
-                    if not vols_retour:
-                        st.info("Aucun vol trouvé.")
-                    for f in vols_retour:
-                        st.markdown(f"""
-                            <div class="result-card" style="border-left: 8px solid #2B2B2B;">
-                                <div style="font-weight: 800; color: #2B2B2B; font-size: 1.1rem;">{f.get('airline', 'Compagnie')}</div>
-                                <div style="color: #444; margin: 5px 0;">🕒 {f.get('departure_time')} → {f.get('arrival_time')}</div>
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-                                    <span style="font-size: 0.9rem; color: #777;">⏱️ {f.get('duration')}</span>
-                                    <span style="font-weight: 700; font-size: 1.2rem; color: #2B2B2B;">{f.get('price')} EUR</span>
-                                </div>
-                            </div>
-                        """, unsafe_allow_html=True)
-
-            # =========================
-            # STAY
-            # =========================
-            st.markdown(
-                f'<div class="title" style="font-size:35px;">🏨 Hébergements à {destination}</div>',
-                unsafe_allow_html=True
-            )
-
-            stay_raw = data.get("stay", {})
-            if isinstance(stay_raw, str):
-                st.info(stay_raw)
-                stays = []
-            elif isinstance(stay_raw, dict):
-                stays = stay_raw.get("stays", [])
-            else:
-                stays = stay_raw if isinstance(stay_raw, list) else []
-
-            if stays:
-                col_s1, col_s2 = st.columns(2)
-                for idx, s in enumerate(stays):
-                    col = col_s1 if idx % 2 == 0 else col_s2
-                    with col:
-                        stay_type = str(s.get('type', 'hotel')).replace('_', ' ').capitalize()
-                        st.markdown(f"""
-                            <div class="result-card" style="border-left: 8px solid #FF9800; min-height: 190px; display: flex; flex-direction: column; justify-content: space-between;">
-                                <div>
-                                    <div style="font-weight: 800; color: #2B2B2B; font-size: 1.2rem; margin-bottom: 2px;">{s.get('name', 'Hébergement')}</div>
-                                    <div style="color: #FF9800; font-weight: 600; font-size: 0.85rem; text-transform: uppercase; margin-bottom: 8px;">✨ {stay_type}</div>
-                                    <div style="color: #7A7A7A; font-size: 0.9rem; line-height: 1.4;">📍 {s.get('address', 'Adresse en cours...')}</div>
-                                </div>
-                                <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 15px;">
-                                    <div style="color: #7A7A7A; font-size: 0.85rem;">{s.get('price_per_night_eur', 0)}€ / nuit</div>
-                                    <div style="background-color: #FFF3E0; padding: 5px 15px; border-radius: 10px; border: 1px solid #FF9800;">
-                                        <span style="font-weight: 800; font-size: 1.1rem; color: #E65100;">Total : {s.get('total_price_eur', 0)} EUR</span>
-                                    </div>
-                                </div>
-                            </div>
-                        """, unsafe_allow_html=True)
-            else:
-                st.info("Aucun hébergement trouvé dans ce budget.")
-
-            # =========================
-            # ACTIVITIES
-            # =========================
-            st.markdown(
-                f'<div class="title" style="font-size:35px;">🎡 Activités à {destination}</div>',
-                unsafe_allow_html=True
-            )
-
-            activities = data.get("activities", [])
-            if isinstance(activities, list) and len(activities) > 0:
-                ca1, ca2 = st.columns(2)
-                for idx, a in enumerate(activities):
-                    with (ca1 if idx % 2 == 0 else ca2):
-                        disp_addr = a.get('address')
-                        if not disp_addr or disp_addr == '—':
-                            disp_addr = f"Centre-ville de {destination}"
-
-                        st.markdown(f"""
-                            <div class="result-card" style="border-left: 8px solid #FF9800; min-height: 180px; display: flex; flex-direction: column; justify-content: space-between;">
-                                <div>
-                                    <div style="font-weight: 800; color: #2B2B2B; font-size: 1.2rem;">{a.get('name')}</div>
-                                    <div style="color: #FF9800; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;">🎭 {a.get('category')}</div>
-                                    <div style="color: #7A7A7A; font-size: 0.9rem;">📍 {disp_addr}</div>
-                                </div>
-                                <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:10px;">
-                                    <span style="font-size: 0.8rem; color: #7A7A7A;">📏 {a.get('distance_km')} km</span>
-                                    <div style="background-color: #FFF3E0; padding: 3px 10px; border-radius: 8px; border: 1px solid #FF9800; font-weight: 800; color: #E65100;">⭐ {a.get('score')}</div>
-                                </div>
-                            </div>
-                        """, unsafe_allow_html=True)
-            else:
-                st.warning("⚠️ Les services de localisation sont trop lents. Réessayez pour charger les adresses.")
-
-            # =========================
-            # WEATHER
-            # =========================
-            st.markdown(f'<div class="title" style="font-size:35px;">🌦️ Météo </div>', unsafe_allow_html=True)
-
-            weather_data = data.get("weather", {}).get("weather", {}) if "weather" in data.get("weather", {}) else data.get("weather", {})
-            if weather_data.get("error"):
-                st.warning(weather_data["error"])
-            elif weather_data:
-                st.markdown(f"""
-                    <div style="background-color: white; padding: 40px; border-radius: 25px; box-shadow: 0px 10px 30px rgba(0,0,0,0.05); display: flex; justify-content: space-around; align-items: center; flex-wrap: wrap;">
-                        <div style="text-align: center;">
-                            <div style="color: #7A7A7A; font-size: 0.9rem;">Température</div>
-                            <div style="font-size: 3rem; font-weight: 900; color: #2B2B2B;">{weather_data.get('temperature', 'N/A')}</div>
-                        </div>
-                        <div style="text-align: center;">
-                            <div style="color: #7A7A7A; font-size: 0.9rem;">Humidité</div>
-                            <div style="font-size: 3rem; font-weight: 900; color: #2B2B2B;">{weather_data.get('humidity', 'N/A')}</div>
-                        </div>
-                        <div style="text-align: center;">
-                            <div style="color: #7A7A7A; font-size: 0.9rem;">Condition</div>
-                            <div style="font-size: 2rem; font-weight: 700; color: #FF9800;">{str(weather_data.get('condition', 'N/A')).capitalize()}</div>
-                        </div>
-                        <div style="max-width: 350px; background-color: #FFF3E0; padding: 25px; border-radius: 20px; border: 2px solid #FF9800;">
-                            <b style="color: #E65100; font-size: 1.1rem;">💡 Conseil :</b><br>
-                            <span style="font-size: 1.05rem; color: #444; line-height: 1.4;">{weather_data.get('tip', 'Bon voyage !')}</span>
-                        </div>
-                    </div>
-                """, unsafe_allow_html=True)
+            st.session_state["voyage_result"] = {"trip": payload, "data": data}
 
         except Exception as e:
             st.error(f"❌ Erreur serveur : {e}. Le backend est peut-être saturé.")
+
+if "voyage_result" in st.session_state:
+    saved = st.session_state["voyage_result"]
+    data = saved["data"]
+    trip = saved["trip"]
+    destination = trip["destination"]
+    try:
+        for agent_name, message in data.get("errors", {}).items():
+            st.warning(f"{agent_name} : {message}")
+
+        # =========================
+        # VOL
+        # =========================
+        st.markdown(
+            f'<div class="title" style="font-size:35px;">✈️ Vols pour {destination}</div>',
+            unsafe_allow_html=True
+        )
+
+        flights = data.get("flights")
+        if not isinstance(flights, dict):
+            st.warning("Réponse 'flights' absente ou invalide.")
+        else:
+            col_a, col_r = st.columns(2)
+
+            with col_a:
+                st.markdown("### 🛫 Aller")
+                vols_aller = flights.get("aller", [])
+                if not vols_aller:
+                    st.info("Aucun vol trouvé.")
+                for f in vols_aller:
+                    st.markdown(f"""
+                        <div class="result-card" style="border-left: 8px solid #FF9800;">
+                            <div style="font-weight: 800; color: #FF9800; font-size: 1.1rem;">{escape(str(f.get('airline', 'Compagnie')))}</div>
+                            <div style="color: #444; margin: 5px 0;">🕒 {escape(str(f.get('departure_time', '')))} → {escape(str(f.get('arrival_time', '')))}</div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                                <span style="font-size: 0.9rem; color: #777;">⏱️ {f.get('duration')} · {f.get('stops', 0)} escale(s)</span>
+                                <span style="font-weight: 700; font-size: 1.2rem; color: #2B2B2B;">{f.get('price')} EUR</span>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    flight_url = f.get("search_url", "")
+                    parsed_url = urlparse(flight_url)
+                    if parsed_url.scheme == "https" and parsed_url.hostname in {"www.google.com", "google.com"}:
+                        st.link_button("Vérifier sur Google Flights", flight_url)
+
+
+            with col_r:
+                st.markdown("### 🛬 Retour")
+                vols_retour = flights.get("retour", [])
+                if not vols_retour:
+                    st.info("Aucun vol trouvé.")
+                for f in vols_retour:
+                    st.markdown(f"""
+                        <div class="result-card" style="border-left: 8px solid #2B2B2B;">
+                            <div style="font-weight: 800; color: #2B2B2B; font-size: 1.1rem;">{escape(str(f.get('airline', 'Compagnie')))}</div>
+                            <div style="color: #444; margin: 5px 0;">🕒 {escape(str(f.get('departure_time', '')))} → {escape(str(f.get('arrival_time', '')))}</div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                                <span style="font-size: 0.9rem; color: #777;">⏱️ {f.get('duration')} · {f.get('stops', 0)} escale(s)</span>
+                                <span style="font-weight: 700; font-size: 1.2rem; color: #2B2B2B;">{f.get('price')} EUR</span>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    flight_url = f.get("search_url", "")
+                    parsed_url = urlparse(flight_url)
+                    if parsed_url.scheme == "https" and parsed_url.hostname in {"www.google.com", "google.com"}:
+                        st.link_button("Vérifier sur Google Flights", flight_url)
+
+
+        # =========================
+        # STAY
+        # =========================
+        st.markdown(
+            f'<div class="title" style="font-size:35px;">🏨 Hébergements à {destination}</div>',
+            unsafe_allow_html=True
+        )
+
+        stay_raw = data.get("stay", {})
+        if isinstance(stay_raw, str):
+            st.info(stay_raw)
+            stays = []
+        elif isinstance(stay_raw, dict):
+            stays = stay_raw.get("stays", [])
+        else:
+            stays = stay_raw if isinstance(stay_raw, list) else []
+
+        if stays:
+            col_s1, col_s2 = st.columns(2)
+            for idx, s in enumerate(stays):
+                col = col_s1 if idx % 2 == 0 else col_s2
+                with col:
+                    stay_type = str(s.get('type', 'hotel')).replace('_', ' ').capitalize()
+                    st.markdown(f"""
+                        <div class="result-card" style="border-left: 8px solid #FF9800; min-height: 190px; display: flex; flex-direction: column; justify-content: space-between;">
+                            <div>
+                                <div style="font-weight: 800; color: #2B2B2B; font-size: 1.2rem; margin-bottom: 2px;">{escape(str(s.get('name', 'Hébergement')))}</div>
+                                <div style="color: #FF9800; font-weight: 600; font-size: 0.85rem; text-transform: uppercase; margin-bottom: 8px;">✨ {stay_type}</div>
+                                <div style="color: #7A7A7A; font-size: 0.9rem; line-height: 1.4;">📍 {escape(str(s.get('address', 'Adresse non disponible')))}</div>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 15px;">
+                                <div style="color: #7A7A7A; font-size: 0.85rem;">{s.get('price_per_night_eur', 0)}€ / nuit</div>
+                                <div style="background-color: #FFF3E0; padding: 5px 15px; border-radius: 10px; border: 1px solid #FF9800;">
+                                    <span style="font-weight: 800; font-size: 1.1rem; color: #E65100;">Total : {s.get('total_price_eur', 0)} EUR</span>
+                                </div>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    hotel_url = s.get("booking_url", "")
+                    if urlparse(hotel_url).scheme == "https":
+                        st.link_button("Vérifier le tarif de l’hébergement", hotel_url)
+
+        else:
+            st.info("Aucun hébergement trouvé dans ce budget.")
+
+        # =========================
+        # ACTIVITIES
+        # =========================
+        st.markdown(
+            f'<div class="title" style="font-size:35px;">🎡 Activités à {destination}</div>',
+            unsafe_allow_html=True
+        )
+
+        activities = data.get("activities", [])
+        if isinstance(activities, list) and len(activities) > 0:
+            ca1, ca2 = st.columns(2)
+            for idx, a in enumerate(activities):
+                with (ca1 if idx % 2 == 0 else ca2):
+                    disp_addr = a.get('address')
+                    if not disp_addr or disp_addr == '—':
+                        disp_addr = "Adresse non disponible"
+
+                    st.markdown(f"""
+                        <div class="result-card" style="border-left: 8px solid #FF9800; min-height: 180px; display: flex; flex-direction: column; justify-content: space-between;">
+                            <div>
+                                <div style="font-weight: 800; color: #2B2B2B; font-size: 1.2rem;">{escape(str(a.get('name', 'Activité')))}</div>
+                                <div style="color: #FF9800; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;">🎭 {a.get('category')}</div>
+                                <div style="color: #7A7A7A; font-size: 0.9rem;">📍 {escape(str(disp_addr))}</div>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:10px;">
+                                <span style="font-size: 0.8rem; color: #7A7A7A;">📏 {a.get('distance_km')} km</span>
+                                <div style="background-color: #FFF3E0; padding: 3px 10px; border-radius: 8px; border: 1px solid #FF9800; font-weight: 800; color: #E65100;">⭐ {a.get('score')}</div>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    if a.get("opening_hours"):
+                        st.caption("Horaires : " + str(a["opening_hours"]))
+                    activity_url = a.get("website") or a.get("map_url", "")
+                    if urlparse(activity_url).scheme == "https":
+                        st.link_button("Consulter le lieu", activity_url)
+
+        else:
+            st.warning("⚠️ Les services de localisation sont trop lents. Réessayez pour charger les adresses.")
+
+        # =========================
+        # WEATHER
+        # =========================
+        st.markdown(f'<div class="title" style="font-size:35px;">🌦️ Météo </div>', unsafe_allow_html=True)
+
+        weather_data = data.get("weather", {}).get("weather", {}) if "weather" in data.get("weather", {}) else data.get("weather", {})
+        if weather_data.get("error"):
+            st.warning(weather_data["error"])
+        elif weather_data.get("temperature") is not None:
+            st.markdown("#### Conditions actuelles")
+            st.markdown(f"""
+                <div style="background-color: white; padding: 40px; border-radius: 25px; box-shadow: 0px 10px 30px rgba(0,0,0,0.05); display: flex; justify-content: space-around; align-items: center; flex-wrap: wrap;">
+                    <div style="text-align: center;">
+                        <div style="color: #7A7A7A; font-size: 0.9rem;">Température</div>
+                        <div style="font-size: 3rem; font-weight: 900; color: #2B2B2B;">{weather_data.get('temperature', 'N/A')}</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="color: #7A7A7A; font-size: 0.9rem;">Humidité</div>
+                        <div style="font-size: 3rem; font-weight: 900; color: #2B2B2B;">{weather_data.get('humidity', 'N/A')}</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="color: #7A7A7A; font-size: 0.9rem;">Condition</div>
+                        <div style="font-size: 2rem; font-weight: 700; color: #FF9800;">{str(weather_data.get('condition', 'N/A')).capitalize()}</div>
+                    </div>
+                    <div style="max-width: 350px; background-color: #FFF3E0; padding: 25px; border-radius: 20px; border: 2px solid #FF9800;">
+                        <b style="color: #E65100; font-size: 1.1rem;">💡 Conseil :</b><br>
+                        <span style="font-size: 1.05rem; color: #444; line-height: 1.4;">{weather_data.get('tip', 'Bon voyage !')}</span>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+        for warning in weather_data.get("warnings", []):
+            st.info(warning)
+        if weather_data.get("daily"):
+            st.markdown("#### Prévisions pour votre séjour")
+            st.dataframe([
+                {"Date": day["date"], "Min (°C)": day["min_c"], "Max (°C)": day["max_c"], "Risque de pluie (%)": day["rain_probability_pct"]}
+                for day in weather_data["daily"]
+            ], hide_index=True, width="stretch")
+        st.divider()
+        safe_destination = re.sub(r"[^\w-]+", "_", destination)
+        st.download_button(
+            "Télécharger mon voyage en PDF",
+            data=build_trip_pdf(trip, data),
+            file_name=f"VoyagePlus_{safe_destination}_{trip['start_date']}.pdf",
+            mime="application/pdf",
+            on_click="ignore",
+            type="primary",
+        )
+    except Exception:
+        st.error("Impossible d’afficher ou d’exporter ce voyage. Réessayez la recherche.")
 
 st.markdown('</div>', unsafe_allow_html=True)
