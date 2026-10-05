@@ -166,4 +166,4 @@ launch.py        Lancement et arrêt des services
 requirements.txt Dépendances épinglées
 ```
 
-La note [docs/integration_adk.md](docs/integration_adk.md) détaille l’intégration. Le mémoire PDF présent localement sert de référence et n’est pas nécessaire pour exécuter l’application.
+La note [docs/integration_adk.md](docs/integration_adk.md) détaille l’intégration.
